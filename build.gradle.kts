@@ -30,8 +30,8 @@ repositories {
 // Configure Gradle IntelliJ Plugin - read more: https://github.com/JetBrains/gradle-intellij-plugin
 intellij {
     pluginName.set(properties("pluginName"))
-    //version.set(properties("platformVersion"))
-    localPath.set("/Users/linux_china/tools/ideaIU-2024.2")
+    version.set(properties("platformVersion"))
+    // localPath.set("/Users/linux_china/tools/ideaIU-2024.2")
     type.set(properties("platformType"))
 
     // Plugin Dependencies. Uses `platformPlugins` property from the gradle.properties file.
