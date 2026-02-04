@@ -61,7 +61,6 @@ class JustCodeCompletionContributor : CompletionContributor() {
 
                         val caret = parameters.editor.caretModel.currentCaret
                         val lineOffset = caret.visualLineStart
-                        val lineEndOffset = caret.visualLineEnd
                         val prefixText = parameters.editor.document.getText(TextRange(lineOffset, caret.offset))
                         if (prefixText.endsWith("$")) {
                             val prefixMatcher = result.withPrefixMatcher("$")
@@ -89,67 +88,51 @@ class JustCodeCompletionContributor : CompletionContributor() {
                                         .withIcon(AllIcons.Nodes.Variable)
                                 )
                             }
-                        } else if (prefixText.trim().endsWith("{{")) {
-                            val prefix = prefixText.substring(prefixText.lastIndexOf("{{"))
-                            val prefixMatcher = result.withPrefixMatcher(prefix)
-                            var suffix = ""
-                            if (prefixText.length > 3) {
-                                val character = prefixText[prefixText.length - 3]
-                                if (character == '\'' || character == '"') {
-                                    suffix = "$character"
+                        } else {
+                            // Check if cursor is inside {{...}} interpolation
+                            val interpolationInfo = findInterpolationContext(prefixText)
+                            if (interpolationInfo != null) {
+                                val (interpolationPrefix, _) = interpolationInfo
+                                var suffix = ""
+                                // Check for quote before the interpolation
+                                val beforeInterpolation = prefixText.substring(0, prefixText.length - interpolationPrefix.length)
+                                if (beforeInterpolation.isNotEmpty()) {
+                                    val lastChar = beforeInterpolation.last()
+                                    if (lastChar == '\'' || lastChar == '"') {
+                                        suffix = "$lastChar"
+                                    }
                                 }
-                            }
-                            val recipeSmt = element.parentOfType<JustRecipeStatement>()!!
-                            extractRecipeVariables(recipeSmt).filter { !it.startsWith("$") }.forEach {
-                                val name = removeVariablePrefix(it)
-                                prefixMatcher.addElement(
-                                    priority(
-                                        LookupElementBuilder.create("{{$name}}${suffix}").withPresentableText(name)
-                                            .withIcon(AllIcons.Nodes.Variable),
-                                        3.0
+                                
+                                val prefixMatcher = result.withPrefixMatcher(interpolationPrefix)
+                                val recipeSmt = element.parentOfType<JustRecipeStatement>()!!
+                                extractRecipeVariables(recipeSmt).filter { !it.startsWith("$") }.forEach {
+                                    val name = removeVariablePrefix(it)
+                                    prefixMatcher.addElement(
+                                        priority(
+                                            LookupElementBuilder.create("{{$name}}${suffix}").withPresentableText(name)
+                                                .withIcon(AllIcons.Nodes.Variable),
+                                            3.0
+                                        )
                                     )
-                                )
-                            }
-                            val justfile = element.containingFile as JustFile
-                            val justfileMetadata = justfile.parseMetadata(true)
-                            justfileMetadata.variables.forEach {
-                                prefixMatcher.addElement(
-                                    priority(
-                                        LookupElementBuilder.create("{{$it}}${suffix}").withPresentableText(it)
-                                            .withIcon(AllIcons.Nodes.Variable), 2.0
-                                    )
-                                )
-                            }
-                            // suffix for functions
-                            suffix = if (prefix.endsWith(" ")) {
-                                " }}"
-                            } else {
-                                "}}"
-                            }
-                            val suffixText = parameters.editor.document.getText(TextRange(caret.offset, lineEndOffset))
-                            if (suffixText.contains("}}")) {
-                                suffix = if (prefix.endsWith(" ") && !suffixText.startsWith(" ")) {
-                                    " "
-                                } else {
-                                    ""
                                 }
-                            }
-                            justfileMetadata.userDefinedFunctions.forEach {
-                                prefixMatcher.addElement(
-                                    priority(
-                                        LookupElementBuilder.create("${prefix}$it()${suffix}")
-                                            .withPresentableText("$it()")
-                                            .withIcon(AllIcons.Nodes.Function), 0.0
+                                val justfile = element.containingFile as JustFile
+                                val justfileMetadata = justfile.parseMetadata(true)
+                                justfileMetadata.variables.forEach {
+                                    prefixMatcher.addElement(
+                                        priority(
+                                            LookupElementBuilder.create("{{$it}}${suffix}").withPresentableText(it)
+                                                .withIcon(AllIcons.Nodes.Variable), 2.0
+                                        )
                                     )
-                                )
-                            }
-                            JUST_FUNCTIONS.forEach {
-                                prefixMatcher.addElement(
-                                    priority(
-                                        LookupElementBuilder.create("${prefix}$it${suffix}").withPresentableText(it)
-                                            .withIcon(AllIcons.Nodes.Function), 0.0
+                                }
+                                JUST_FUNCTIONS.forEach {
+                                    prefixMatcher.addElement(
+                                        priority(
+                                            LookupElementBuilder.create("{{$it}}${suffix}").withPresentableText(it)
+                                                .withIcon(AllIcons.Nodes.Function), 0.0
+                                        )
                                     )
-                                )
+                                }
                             }
                         }
                     }
@@ -171,6 +154,35 @@ class JustCodeCompletionContributor : CompletionContributor() {
             }.toList()
         }
         return emptyList()
+    }
+
+    /**
+     * Checks if the cursor is inside a {{...}} interpolation and returns the prefix to match against
+     * and the partial input typed so far.
+     * Returns null if not inside an interpolation.
+     *
+     * @return Pair of (prefix including {{, partial input) or null
+     */
+    private fun findInterpolationContext(prefixText: String): Pair<String, String>? {
+        // Find the last occurrence of {{
+        val lastOpenBrace = prefixText.lastIndexOf("{{")
+        if (lastOpenBrace == -1) {
+            return null
+        }
+
+        // Check if there's a }} after the last {{ (meaning we're not inside an interpolation)
+        val afterOpenBrace = prefixText.substring(lastOpenBrace + 2)
+        if (afterOpenBrace.contains("}}")) {
+            return null
+        }
+
+        // We're inside an interpolation
+        // The prefix is everything from {{ onwards
+        val interpolationPrefix = prefixText.substring(lastOpenBrace)
+        // The partial input is everything after {{
+        val partialInput = afterOpenBrace
+
+        return Pair(interpolationPrefix, partialInput)
     }
 
     fun priority(builder: LookupElementBuilder, priority: Double): LookupElement {
