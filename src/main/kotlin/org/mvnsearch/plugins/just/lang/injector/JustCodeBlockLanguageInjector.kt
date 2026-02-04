@@ -54,16 +54,20 @@ class JustCodeBlockLanguageInjector : MultiHostInjector {
                 }
                 val endOffset = context.textLength - trailLength
                 if (endOffset > offset) {
-                    val injectionTextRange = TextRange(offset, context.textLength - trailLength)
-                    registrar.startInjecting(shellLanguage!!)
-                    // add prefix to declare variables
-                    registrar.addPlace(
-                        injectionScript,
-                        null,
-                        context as PsiLanguageInjectionHost,
-                        injectionTextRange
-                    )
-                    registrar.doneInjecting()
+                    val injectionRanges = buildShellInjectionRanges(text, offset, endOffset)
+                    if (injectionRanges.isNotEmpty()) {
+                        registrar.startInjecting(shellLanguage!!)
+                        injectionRanges.forEachIndexed { index, range ->
+                            val prefix = if (index == 0) injectionScript else null
+                            registrar.addPlace(
+                                prefix,
+                                null,
+                                context as PsiLanguageInjectionHost,
+                                range
+                            )
+                        }
+                        registrar.doneInjecting()
+                    }
                 }
             }
         } else if (sqlLanguage != null && (justFile.isSQLAlike() || isSQLCode(trimmedText))) {
@@ -111,16 +115,51 @@ class JustCodeBlockLanguageInjector : MultiHostInjector {
         if (firstWord in arrayOf("select", "update", "delete", "insert")) { //SQL style
             return false
         }
-        if (trimmedCode.contains("{{") || trimmedCode.contains("}}")) {
-            // enable highlight for parameter in string
-            return (trimmedCode.contains("\"{{") || trimmedCode.contains("'{{")) && !trimmedCode.contains(" {{")
-        }
         // check shell shebang
         return !trimmedCode.startsWith("#!")
                 || trimmedCode.startsWith("#!/usr/bin/env sh")
                 || trimmedCode.startsWith("#!/usr/bin/env bash")
                 || trimmedCode.startsWith("#!/usr/bin/env zsh")
                 || trimmedCode.startsWith("#!/usr/bin/env fish")
+    }
+
+    private fun buildShellInjectionRanges(text: String, startOffset: Int, endOffset: Int): List<TextRange> {
+        if (startOffset >= endOffset) {
+            return emptyList()
+        }
+        val templateRanges = findTemplateRanges(text, startOffset, endOffset)
+        if (templateRanges.isEmpty()) {
+            return listOf(TextRange(startOffset, endOffset))
+        }
+        val ranges = mutableListOf<TextRange>()
+        var currentOffset = startOffset
+        for (range in templateRanges) {
+            if (range.startOffset > currentOffset) {
+                ranges.add(TextRange(currentOffset, range.startOffset))
+            }
+            if (range.endOffset > currentOffset) {
+                currentOffset = range.endOffset
+            }
+        }
+        if (currentOffset < endOffset) {
+            ranges.add(TextRange(currentOffset, endOffset))
+        }
+        return ranges
+    }
+
+    private fun findTemplateRanges(text: String, startOffset: Int, endOffset: Int): List<TextRange> {
+        val ranges = mutableListOf<TextRange>()
+        var offset = text.indexOf("{{", startOffset)
+        while (offset >= 0 && offset < endOffset) {
+            val closeOffset = text.indexOf("}}", offset + 2)
+            if (closeOffset < 0 || closeOffset + 2 > endOffset) {
+                ranges.add(TextRange(offset, endOffset))
+                break
+            }
+            ranges.add(TextRange(offset, closeOffset + 2))
+            offset = text.indexOf("{{", closeOffset + 2)
+        }
+        return ranges
     }
 
     private fun isSQLCode(trimmedCode: String): Boolean {
