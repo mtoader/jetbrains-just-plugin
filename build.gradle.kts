@@ -31,7 +31,6 @@ repositories {
 intellij {
     pluginName.set(properties("pluginName"))
     version.set(properties("platformVersion"))
-    //localPath.set("/Users/linux_china/tools/ideaIU-2024.2")
     type.set(properties("platformType"))
 
     // Plugin Dependencies. Uses `platformPlugins` property from the gradle.properties file.
