@@ -28,6 +28,60 @@ class JustCodeBlockLanguageInjector : MultiHostInjector {
         }
     }
 
+    /**
+     * Represents a fragment in the code block - either shell code or a Just interpolation ({{...}})
+     */
+    private data class CodeFragment(
+        val range: TextRange,
+        val isInterpolation: Boolean
+    )
+
+    /**
+     * Finds all {{...}} interpolation fragments in the text and returns a list of fragments
+     * representing both the shell code segments and interpolation segments.
+     * If there are no interpolations, returns a single fragment covering the entire range.
+     */
+    private fun findCodeFragments(text: String, startOffset: Int, endOffset: Int): List<CodeFragment> {
+        val fragments = mutableListOf<CodeFragment>()
+        var currentPos = startOffset
+        var searchPos = startOffset
+
+        while (searchPos < endOffset) {
+            val openBracePos = text.indexOf("{{", searchPos)
+            if (openBracePos == -1 || openBracePos >= endOffset) {
+                // No more interpolations, add the remaining text as shell code
+                if (currentPos < endOffset) {
+                    fragments.add(CodeFragment(TextRange(currentPos, endOffset), isInterpolation = false))
+                }
+                break
+            }
+
+            // Find the matching closing braces
+            val closeBracePos = text.indexOf("}}", openBracePos + 2)
+            if (closeBracePos == -1 || closeBracePos >= endOffset) {
+                // Unclosed interpolation, treat rest as shell code
+                if (currentPos < endOffset) {
+                    fragments.add(CodeFragment(TextRange(currentPos, endOffset), isInterpolation = false))
+                }
+                break
+            }
+
+            // Add shell code before the interpolation (if any)
+            if (openBracePos > currentPos) {
+                fragments.add(CodeFragment(TextRange(currentPos, openBracePos), isInterpolation = false))
+            }
+
+            // Add the interpolation fragment (including the {{ and }})
+            val interpolationEnd = closeBracePos + 2
+            fragments.add(CodeFragment(TextRange(openBracePos, interpolationEnd), isInterpolation = true))
+
+            currentPos = interpolationEnd
+            searchPos = interpolationEnd
+        }
+
+        return fragments
+    }
+
 
     override fun getLanguagesToInject(registrar: MultiHostRegistrar, context: PsiElement) {
         val justFile = context.containingFile as JustFile
@@ -54,16 +108,26 @@ class JustCodeBlockLanguageInjector : MultiHostInjector {
                 }
                 val endOffset = context.textLength - trailLength
                 if (endOffset > offset) {
-                    val injectionTextRange = TextRange(offset, context.textLength - trailLength)
-                    registrar.startInjecting(shellLanguage!!)
-                    // add prefix to declare variables
-                    registrar.addPlace(
-                        injectionScript,
-                        null,
-                        context as PsiLanguageInjectionHost,
-                        injectionTextRange
-                    )
-                    registrar.doneInjecting()
+                    // Find code fragments, splitting on {{...}} interpolations
+                    val fragments = findCodeFragments(text, offset, endOffset)
+                    val shellFragments = fragments.filter { !it.isInterpolation && it.range.length > 0 }
+
+                    // Inject Shell language in the non-interpolation fragments
+                    if (shellFragments.isNotEmpty()) {
+                        registrar.startInjecting(shellLanguage!!)
+                        var isFirst = true
+                        for (fragment in shellFragments) {
+                            val prefix = if (isFirst) injectionScript else null
+                            registrar.addPlace(
+                                prefix,
+                                null,
+                                context as PsiLanguageInjectionHost,
+                                fragment.range
+                            )
+                            isFirst = false
+                        }
+                        registrar.doneInjecting()
+                    }
                 }
             }
         } else if (sqlLanguage != null && (justFile.isSQLAlike() || isSQLCode(trimmedText))) {
@@ -111,10 +175,8 @@ class JustCodeBlockLanguageInjector : MultiHostInjector {
         if (firstWord in arrayOf("select", "update", "delete", "insert")) { //SQL style
             return false
         }
-        if (trimmedCode.contains("{{") || trimmedCode.contains("}}")) {
-            // enable highlight for parameter in string
-            return (trimmedCode.contains("\"{{") || trimmedCode.contains("'{{")) && !trimmedCode.contains(" {{")
-        }
+        // Note: We no longer bail out when {{}} is present. Instead, we use multihost injection
+        // to handle interpolation fragments properly while still providing Shell language support.
         // check shell shebang
         return !trimmedCode.startsWith("#!")
                 || trimmedCode.startsWith("#!/usr/bin/env sh")
