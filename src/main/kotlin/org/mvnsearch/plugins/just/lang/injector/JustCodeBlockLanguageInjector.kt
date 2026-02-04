@@ -39,6 +39,7 @@ class JustCodeBlockLanguageInjector : MultiHostInjector {
     /**
      * Finds all {{...}} interpolation fragments in the text and returns a list of fragments
      * representing both the shell code segments and interpolation segments.
+     * If there are no interpolations, returns a single fragment covering the entire range.
      */
     private fun findCodeFragments(text: String, startOffset: Int, endOffset: Int): List<CodeFragment> {
         val fragments = mutableListOf<CodeFragment>()
@@ -81,13 +82,6 @@ class JustCodeBlockLanguageInjector : MultiHostInjector {
         return fragments
     }
 
-    /**
-     * Checks if the code contains any {{...}} interpolation fragments
-     */
-    private fun hasInterpolations(text: String): Boolean {
-        return text.contains("{{") && text.contains("}}")
-    }
-
 
     override fun getLanguagesToInject(registrar: MultiHostRegistrar, context: PsiElement) {
         val justFile = context.containingFile as JustFile
@@ -114,41 +108,24 @@ class JustCodeBlockLanguageInjector : MultiHostInjector {
                 }
                 val endOffset = context.textLength - trailLength
                 if (endOffset > offset) {
-                    // Check if the code contains interpolations
-                    if (hasInterpolations(text)) {
-                        // Use multihost injection with multiple ranges to handle {{...}} fragments
-                        // Shell language is injected into the non-interpolation parts
-                        // The {{...}} fragments are left as-is to allow Just language completions
-                        val fragments = findCodeFragments(text, offset, endOffset)
-                        val shellFragments = fragments.filter { !it.isInterpolation && it.range.length > 0 }
+                    // Find code fragments, splitting on {{...}} interpolations
+                    val fragments = findCodeFragments(text, offset, endOffset)
+                    val shellFragments = fragments.filter { !it.isInterpolation && it.range.length > 0 }
 
-                        // Inject Shell language in the non-interpolation fragments
-                        if (shellFragments.isNotEmpty()) {
-                            registrar.startInjecting(shellLanguage!!)
-                            var isFirst = true
-                            for (fragment in shellFragments) {
-                                val prefix = if (isFirst) injectionScript else null
-                                registrar.addPlace(
-                                    prefix,
-                                    null,
-                                    context as PsiLanguageInjectionHost,
-                                    fragment.range
-                                )
-                                isFirst = false
-                            }
-                            registrar.doneInjecting()
-                        }
-                    } else {
-                        // No interpolations, use simple single-range injection
-                        val injectionTextRange = TextRange(offset, endOffset)
+                    // Inject Shell language in the non-interpolation fragments
+                    if (shellFragments.isNotEmpty()) {
                         registrar.startInjecting(shellLanguage!!)
-                        // add prefix to declare variables
-                        registrar.addPlace(
-                            injectionScript,
-                            null,
-                            context as PsiLanguageInjectionHost,
-                            injectionTextRange
-                        )
+                        var isFirst = true
+                        for (fragment in shellFragments) {
+                            val prefix = if (isFirst) injectionScript else null
+                            registrar.addPlace(
+                                prefix,
+                                null,
+                                context as PsiLanguageInjectionHost,
+                                fragment.range
+                            )
+                            isFirst = false
+                        }
                         registrar.doneInjecting()
                     }
                 }
