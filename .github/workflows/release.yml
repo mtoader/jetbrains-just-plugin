@@ -81,6 +81,9 @@ jobs:
           echo "Since Build: $SINCE_BUILD"
           echo "Until Build: $UNTIL_BUILD"
 
+      - name: Generate Lexer and Parser
+        run: ./gradlew generateLexer generateParser
+
       - name: Build Plugin
         run: ./gradlew buildPlugin
 
