@@ -15,10 +15,6 @@ on:
         description: 'Version override (leave empty to use gradle.properties)'
         required: false
         type: string
-  # Trigger on push to test branches (remove before merging to master)
-  push:
-    branches:
-      - 'cursor/**'
 
 jobs:
   build:
