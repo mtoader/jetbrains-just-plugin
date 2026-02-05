@@ -1,0 +1,190 @@
+# GitHub Actions workflow to build the JetBrains Just plugin and create release artifacts
+# This workflow builds the plugin, generates a plugin channel file (updatePlugins.xml),
+# and exports them as release artifacts.
+
+name: Build and Release Plugin
+
+on:
+  # Trigger on release creation
+  release:
+    types: [created]
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version override (leave empty to use gradle.properties)'
+        required: false
+        type: string
+
+jobs:
+  build:
+    name: Build Plugin
+    runs-on: ubuntu-latest
+    
+    outputs:
+      plugin_version: ${{ steps.properties.outputs.version }}
+      plugin_name: ${{ steps.properties.outputs.name }}
+      plugin_id: ${{ steps.properties.outputs.id }}
+      since_build: ${{ steps.properties.outputs.since_build }}
+      until_build: ${{ steps.properties.outputs.until_build }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Extract Plugin Properties
+        id: properties
+        shell: bash
+        run: |
+          # Read properties from gradle.properties
+          PROPERTIES="$(cat gradle.properties)"
+          
+          # Extract version (use input override if provided)
+          if [[ -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="$(echo "$PROPERTIES" | grep "^pluginVersion" | cut -d'=' -f2 | tr -d ' ')"
+          fi
+          
+          # Extract plugin name from settings.gradle.kts
+          NAME="$(grep "rootProject.name" settings.gradle.kts | cut -d'"' -f2)"
+          
+          # Extract build range
+          SINCE_BUILD="$(echo "$PROPERTIES" | grep "^pluginSinceBuild" | cut -d'=' -f2 | tr -d ' ')"
+          UNTIL_BUILD="$(echo "$PROPERTIES" | grep "^pluginUntilBuild" | cut -d'=' -f2 | tr -d ' ')"
+          
+          # Plugin ID from plugin.xml
+          PLUGIN_ID="org.mvnsearch.plugins.justPlugin"
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "name=$NAME" >> $GITHUB_OUTPUT
+          echo "id=$PLUGIN_ID" >> $GITHUB_OUTPUT
+          echo "since_build=$SINCE_BUILD" >> $GITHUB_OUTPUT
+          echo "until_build=$UNTIL_BUILD" >> $GITHUB_OUTPUT
+          
+          echo "Plugin Version: $VERSION"
+          echo "Plugin Name: $NAME"
+          echo "Plugin ID: $PLUGIN_ID"
+          echo "Since Build: $SINCE_BUILD"
+          echo "Until Build: $UNTIL_BUILD"
+
+      - name: Generate Lexer and Parser
+        run: ./gradlew generateLexer generateParser
+
+      - name: Build Plugin
+        run: ./gradlew buildPlugin
+
+      - name: Verify Plugin Artifact
+        run: |
+          ls -la build/distributions/
+          # Verify the ZIP file exists
+          if [ ! -f build/distributions/*.zip ]; then
+            echo "Error: Plugin ZIP file not found!"
+            exit 1
+          fi
+
+      - name: Generate Plugin Channel File
+        id: channel
+        shell: bash
+        run: |
+          VERSION="${{ steps.properties.outputs.version }}"
+          PLUGIN_ID="${{ steps.properties.outputs.id }}"
+          SINCE_BUILD="${{ steps.properties.outputs.since_build }}"
+          UNTIL_BUILD="${{ steps.properties.outputs.until_build }}"
+          
+          # Find the built plugin ZIP
+          PLUGIN_ZIP=$(ls build/distributions/*.zip | head -1)
+          PLUGIN_FILENAME=$(basename "$PLUGIN_ZIP")
+          
+          echo "plugin_filename=$PLUGIN_FILENAME" >> $GITHUB_OUTPUT
+          
+          # Determine the download URL based on the trigger
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            # For releases, use the release asset URL
+            DOWNLOAD_URL="${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/$PLUGIN_FILENAME"
+          else
+            # For workflow_dispatch, use a placeholder that can be updated
+            DOWNLOAD_URL="${{ github.server_url }}/${{ github.repository }}/releases/latest/download/$PLUGIN_FILENAME"
+          fi
+          
+          # Create the updatePlugins.xml channel file
+          cat > build/distributions/updatePlugins.xml << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <plugins>
+            <plugin id="$PLUGIN_ID" url="$DOWNLOAD_URL" version="$VERSION">
+              <name>Just</name>
+              <description>JetBrains Just Command Runner Plugin - Integrates just commander in JetBrains IDEs</description>
+              <vendor email="libing.chen@gmail.com" url="https://github.com/${{ github.repository }}">linux_china</vendor>
+              <idea-version since-build="$SINCE_BUILD" until-build="$UNTIL_BUILD"/>
+              <change-notes>
+                <![CDATA[
+                  See <a href="${{ github.server_url }}/${{ github.repository }}/releases">GitHub Releases</a> for changelog.
+                ]]>
+              </change-notes>
+            </plugin>
+          </plugins>
+          EOF
+          
+          echo "Generated updatePlugins.xml:"
+          cat build/distributions/updatePlugins.xml
+
+      - name: Upload Plugin Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-zip
+          path: build/distributions/*.zip
+          if-no-files-found: error
+
+      - name: Upload Channel File Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-channel
+          path: build/distributions/updatePlugins.xml
+          if-no-files-found: error
+
+      - name: Upload Combined Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: |
+            build/distributions/*.zip
+            build/distributions/updatePlugins.xml
+          if-no-files-found: error
+
+  # Upload artifacts to GitHub Release (only runs on release trigger)
+  upload-release-assets:
+    name: Upload Release Assets
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Download Release Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: artifacts/
+
+      - name: List Artifacts
+        run: ls -la artifacts/
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.zip
+            artifacts/updatePlugins.xml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
