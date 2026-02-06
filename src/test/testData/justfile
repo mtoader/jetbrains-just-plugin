@@ -201,6 +201,18 @@ depends
 depends:
   echo "it works"
 
+# namespaced dependency
+recipe-with-ns-dep: path1::dep
+  @echo a
+
+# multiple namespaced dependencies
+recipe-with-ns-deps: path1::dep path2::dep2
+  @echo b
+
+# namespaced dependency with params
+recipe-with-ns-dep-params: (path1::dep "arg1")
+  @echo c
+
 # Local Variables:
 # mode: makefile
 # End:
