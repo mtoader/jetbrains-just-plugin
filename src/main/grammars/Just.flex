@@ -358,6 +358,7 @@ KEYWORD_ELSE_IF=("else if")
 <DEPENDENCIES> {
   {WHITE_SPACE}+           {  yybegin(DEPENDENCIES); return TokenType.WHITE_SPACE; }
   {DOUBLE_AND}             {  yybegin(DEPENDENCIES); return DOUBLE_AND; }
+  {DUOBLE_COLON}           {  yybegin(DEPENDENCIES); return DUOBLE_COLON; }
   {DEPENDENCY_NAME}        {  yybegin(DEPENDENCIES); return DEPENDENCY_NAME; }
   {OPEN_PAREN}             {  yybegin(DEPENDENCY_WITH_PARAMS); return OPEN_PAREN; }
   {COMMENT}                {  yybegin(DEPENDENCIES); return COMMENT; }
@@ -379,6 +380,7 @@ KEYWORD_ELSE_IF=("else if")
  {STRING}                                {  yybegin(DEPENDENCY_CALL_PARAMS); return STRING; }
  {RAW_STRING}                            {  yybegin(DEPENDENCY_CALL_PARAMS); return RAW_STRING; }
  {BACKTICK}                              {  yybegin(DEPENDENCY_CALL_PARAMS); return BACKTICK; }
+ {DUOBLE_COLON}                          {  yybegin(DEPENDENCY_WITH_PARAMS); return DUOBLE_COLON; }
  {PLUS}                                  {  yybegin(DEPENDENCY_WITH_PARAMS); return PLUS; }
  {SLASH}                                 {  yybegin(DEPENDENCY_WITH_PARAMS); return SLASH; }
  {OR}                                    {  yybegin(DEPENDENCY_WITH_PARAMS); return OR; }
