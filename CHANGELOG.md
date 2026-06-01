@@ -10,7 +10,6 @@
 
 - Add `set default-list := true` 
 
-
 ## 0.6.43 - 2026-05-25
 
 ### Added

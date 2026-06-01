@@ -125,7 +125,7 @@ class JustCodeBlockLanguageInjector : MultiHostInjector {
         }
         if (trimmedCode.contains("{{") || trimmedCode.contains("}}")) {
             // enable highlight for parameter in string
-            return (trimmedCode.contains("\"{{" ) || trimmedCode.contains("'{{" )) && !trimmedCode.contains(" {{")
+            return (trimmedCode.contains("\"{{") || trimmedCode.contains("'{{")) && !trimmedCode.contains(" {{")
         }
         return true
     }
