@@ -107,6 +107,10 @@ class JustCodeBlockLanguageInjector : MultiHostInjector {
     }
 
     private fun isShellCode(trimmedCode: String, fileDeclaresShell: Boolean): Boolean {
+        val firstWord = trimmedCode.substringBefore(' ').lowercase()
+        if (firstWord in arrayOf("select", "update", "delete", "insert")) {
+            return false
+        }
         if (trimmedCode.startsWith("#!/usr/bin/env sh")
             || trimmedCode.startsWith("#!/usr/bin/env bash")
             || trimmedCode.startsWith("#!/usr/bin/env zsh")
@@ -114,10 +118,6 @@ class JustCodeBlockLanguageInjector : MultiHostInjector {
             return true
         }
         if (trimmedCode.startsWith("#!")) {
-            return false
-        }
-        val firstWord = trimmedCode.substringBefore(' ').lowercase()
-        if (firstWord in arrayOf("select", "update", "delete", "insert")) {
             return false
         }
         if (fileDeclaresShell) {
